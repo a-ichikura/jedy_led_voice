@@ -1,0 +1,253 @@
+#include <M5StickCPlus.h>
+#include <ros.h>
+#include <std_msgs/UInt16.h>
+#include <std_msgs/Float32.h>
+#include <std_msgs/String.h>
+#include <std_msgs/ColorRGBA.h>
+#include <std_msgs/Bool.h> 
+
+ros::NodeHandle  nh;
+#include "FastLED.h"
+
+//LEDのための設定
+#define Neopixel_PIN 32
+#define NUM_LEDS     37
+
+CRGB leds[NUM_LEDS];
+uint8_t gHue = 0;  // Initial tone value.
+
+int led_mode = 1;
+float r, g, b, brightness;
+float duration = 3;
+int blink_time = 1;
+int rainbow_delta_hue = 1;
+
+//音のための設定
+#define SS 0.0      /*休符*/
+#define T8  200  /*8分休符*/
+#define T4  400  /*4分休符*/
+#define T2  800  /*2分休符*/
+
+#define C4 261.626  /*ド*/
+#define E4 329.628  /*ミ*/
+#define G4 391.995  /*ソ*/
+#define C5 523.251  /*高いド*/
+#define E5 659.255  /*高いミ*/
+#define G5 783.991  /*高いソ*/
+
+//ボタンのための設定
+#define BUTTON_PIN 26  // ボタンを接続するGPIOピン
+
+typedef struct {
+    float freq;
+    uint16_t period;
+} tone_t;
+
+// "Help" (緊急感を出すために急激な上昇)
+const tone_t help_sound[] = {
+    {C5, T8}, {E5, T8}, {G5, T8}, {SS, T8},
+    {C5, T8}, {E5, T8}, {G5, T8}, {SS, T4}
+};
+
+// "Ready" (落ち着いた下降音階)
+const tone_t ready_sound[] = {
+    {G4, T8}, {E4, T8}, {C4, T4}, {SS, T4}
+};
+
+// "Joy" (明るい上昇)
+const tone_t joy_sound[] = {
+    {C4, T8}, {E4, T8}, {G4, T8}, {C5, T4}, {SS, T4}
+};
+
+//
+
+//LEDのためのコールバック
+void ledModeMessageCb(const std_msgs::UInt16& msg){
+  led_mode = msg.data;
+}
+
+void colorMessageCb( const std_msgs::ColorRGBA& msg){
+  r = msg.r;
+  g = msg.g;
+  b = msg.b;
+  brightness = msg.a;
+ }
+
+void blinkTimeMessageCb(const std_msgs::UInt16& msg){
+  blink_time = msg.data;
+}
+
+void durationMessageCb(const std_msgs::Float32& msg){
+  duration = msg.data;
+}
+
+void rainbowDeltaHueMessageCb(const std_msgs::UInt16& msg){
+  rainbow_delta_hue = msg.data;
+}
+
+//LEDのための関数
+void updateLED() {
+    if (led_mode == 1) {
+        for (int i = 0; i < NUM_LEDS; i++) {
+            leds[i].setRGB(r, g, b);
+        }
+        FastLED.setBrightness(brightness);
+        FastLED.show();  // Updated LED color.
+    } 
+    
+    else if (led_mode == 2) {
+        for (int i = 0; i < NUM_LEDS; i++) {
+            leds[i].setRGB(r, g, b);
+        }
+        delay(1000);
+        blink_led();
+    }
+    
+    else if (led_mode == 3) {
+        fill_rainbow(leds, NUM_LEDS, gHue, rainbow_delta_hue);
+        FastLED.setBrightness(brightness);
+        FastLED.show();  // Updated LED color.
+    }
+
+    EVERY_N_MILLISECONDS(20) {
+        gHue++;
+    }  // The program is executed every 20 milliseconds.
+}
+
+void brighten_led(){
+  int delta = max(int(brightness / 10), 1);
+  float tmp_brightness = 0;
+  for (tmp_brightness; tmp_brightness < brightness; tmp_brightness += delta){
+    FastLED.setBrightness(tmp_brightness);
+    FastLED.show(); 
+    delay(200);
+  }
+  tmp_brightness = brightness;
+  FastLED.setBrightness(tmp_brightness);
+  FastLED.show();
+  delay(200);
+}
+
+void fade_led(){
+  int delta = max(int(brightness / 10), 1);
+  float tmp_brightness = brightness;
+  for (tmp_brightness; tmp_brightness > delta; tmp_brightness -= delta){
+    FastLED.setBrightness(tmp_brightness);
+    FastLED.show(); 
+    delay(200);
+  }
+  tmp_brightness = 0;
+  FastLED.setBrightness(tmp_brightness);
+  FastLED.show();
+  delay(200);
+}
+
+void blink_led(){
+ for (blink_time; blink_time > 0; blink_time -= 1){
+  brighten_led();
+  delay(duration * 1000);
+  fade_led();
+ }
+ brightness = 0;
+}
+
+
+//LEDのためのsubscriber
+ros::Subscriber<std_msgs::UInt16> led_mode_subscriber("led_mode", &ledModeMessageCb);
+ros::Subscriber<std_msgs::ColorRGBA> led_color_subscriber("led_rgb", &colorMessageCb);
+ros::Subscriber<std_msgs::UInt16> led_blink_time_subscriber("led_blink_time", &blinkTimeMessageCb);
+ros::Subscriber<std_msgs::Float32> led_duration_subscriber("led_duration", &durationMessageCb);
+ros::Subscriber<std_msgs::UInt16> led_rainbow_delta_hue_subscriber("led_rainbow_delta_hue", &rainbowDeltaHueMessageCb);
+
+//音楽のための関数
+void playSound(const tone_t* tone, uint32_t length) {
+    for (int i = 0; i < length; i++) {
+        if (tone[i].freq > 0) {
+            M5.Beep.tone(tone[i].freq);
+        } else {
+            M5.Beep.mute();
+        }
+        //delayMicroseconds(tone[i].period * 1000);
+        delay(tone[i].period); // delayMicroseconds ではなく delay() を使用
+    }
+    //M5.Beep.mute();
+}
+
+void jedyvoiceMessageCb(const std_msgs::String& msg){
+  //M5.Lcd.println(msg.data);  // トピックの内容を表示
+  M5.Lcd.fillScreen(BLACK);  // 画面をクリア
+  M5.Lcd.setCursor(0, 0);    // カーソルを左上にリセット
+  M5.Lcd.setTextColor(WHITE); // 文字色を白に設定
+  
+  delay(100);
+  if (strcmp(msg.data,"help")==0) {
+        M5.Lcd.println("Help!");
+        playSound(help_sound, sizeof(help_sound)/sizeof(help_sound[0]));
+        delay(1000);
+    } else if (strcmp(msg.data,"ready")==0) {
+        M5.Lcd.println("Ready!");
+        playSound(ready_sound, sizeof(ready_sound)/sizeof(ready_sound[0]));
+        delay(1000);
+    } else if (strcmp(msg.data,"joy")==0) {
+        M5.Lcd.println("Joy!");
+        playSound(joy_sound, sizeof(joy_sound)/sizeof(joy_sound[0])); 
+    }
+    else{
+      M5.Lcd.println(msg.data);  // トピックの内容を表示
+      }
+}
+
+//音楽のためのsubscriber
+ros::Subscriber<std_msgs::String> jedy_voice_subscriber("jedy_voice", &jedyvoiceMessageCb);
+
+//ボタンの状態を送信するためのpublisher
+std_msgs::Bool button_msg;
+ros::Publisher button_publisher("button_ispressed", &button_msg);
+
+//ボタンのための関数
+void buttonstate(){
+  int buttonState = digitalRead(BUTTON_PIN); // ボタンの状態を取得
+    if (buttonState == LOW) { // 内部プルアップなので押すとLOW
+      M5.Lcd.fillScreen(BLACK);  // 画面をクリア
+      M5.Lcd.setCursor(0, 0);    // カーソルを左上にリセット
+      M5.Lcd.setTextColor(WHITE); // 文字色を白に設定
+      M5.Lcd.println("Button Pressed!");
+      // トピックにTrueを送信
+      button_msg.data = true;
+      button_publisher.publish(&button_msg);
+    }
+    delay(100);  // チャタリング防止
+}
+
+void setup() {
+    M5.begin();// Init M5Stack. 
+    delay(100);
+    //M5.Power.begin();       // Init power
+    M5.Lcd.setTextSize(3);  
+    M5.Lcd.println("HEX Example");
+    M5.Lcd.println("Display rainbow effect");
+    M5.Beep.setVolume(20);
+    M5.Beep.begin();
+    pinMode(BUTTON_PIN, INPUT_PULLUP);  // 内部プルアップ有効
+
+    // Neopixel initialization. 
+    FastLED.addLeds<WS2811, Neopixel_PIN, GRB>(leds, NUM_LEDS)
+        .setCorrection(TypicalLEDStrip);
+    FastLED.setBrightness(1);  // set the LED brightness to 5.
+    nh.getHardware()->setBaud(115200);
+    nh.initNode(); 
+    nh.subscribe(led_mode_subscriber);
+    nh.subscribe(led_color_subscriber);
+    nh.subscribe(led_blink_time_subscriber);
+    nh.subscribe(led_duration_subscriber);
+    nh.subscribe(led_rainbow_delta_hue_subscriber);
+    nh.subscribe(jedy_voice_subscriber);
+    nh.advertise(button_publisher);
+}
+
+void loop() {
+    nh.spinOnce();
+    M5.update();
+    updateLED();  // LED の更新を関数として呼び出す
+    buttonstate(); //ボタンの更新を関数として呼び出す
+}
