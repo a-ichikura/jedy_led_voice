@@ -8,6 +8,8 @@
 
 ros::NodeHandle  nh;
 #include "FastLED.h"
+String received_text = "";  // 受信した文字列
+bool new_message = false;   // 新しいメッセージが来たかどうかのフラグ
 
 //LEDのための設定
 #define Neopixel_PIN 32
@@ -36,7 +38,7 @@ int rainbow_delta_hue = 1;
 #define G5 783.991  /*高いソ*/
 
 //ボタンのための設定
-#define BUTTON_PIN 26  // ボタンを接続するGPIOピン
+#define BUTTON_PIN 33  // ボタンを接続するGPIOピン
 
 typedef struct {
     float freq;
@@ -178,6 +180,9 @@ void jedyvoiceMessageCb(const std_msgs::String& msg){
   M5.Lcd.fillScreen(BLACK);  // 画面をクリア
   M5.Lcd.setCursor(0, 0);    // カーソルを左上にリセット
   M5.Lcd.setTextColor(WHITE); // 文字色を白に設定
+  int char_width = 12;
+  new_message = true;  // 新しいメッセージが来たことを通知
+  received_text = msg.data;
   
   delay(100);
   if (strcmp(msg.data,"help")==0) {
@@ -193,9 +198,26 @@ void jedyvoiceMessageCb(const std_msgs::String& msg){
         playSound(joy_sound, sizeof(joy_sound)/sizeof(joy_sound[0])); 
     }
     else{
-      M5.Lcd.println(msg.data);  // トピックの内容を表示
-      }
+      if (new_message) {
+        M5.Lcd.fillScreen(TFT_BLACK);  // 画面をクリア
+        int x = 20, y = 20;  // 文字の初期位置
+        int char_width = 15; // 文字幅（フォントサイズに応じて調整）
+        
+        for (int i = 0; i < received_text.length(); i++) {
+            M5.Lcd.setCursor(x, y);
+            M5.Lcd.print(received_text[i]); // 一文字ずつ表示
+            x += char_width;  // 次の文字の位置を調整
+            if (x > 200) {  // 画面端に来たら改行
+                x = 10;
+                y += 20;
+            }
+            delay(100);  // 100msの遅延でタイプライター風に
+        }
+        new_message = false;  // フラグをリセット
+    }
 }
+}
+
 
 //音楽のためのsubscriber
 ros::Subscriber<std_msgs::String> jedy_voice_subscriber("jedy_voice", &jedyvoiceMessageCb);
@@ -209,7 +231,7 @@ void buttonstate(){
   int buttonState = digitalRead(BUTTON_PIN); // ボタンの状態を取得
     if (buttonState == LOW) { // 内部プルアップなので押すとLOW
       M5.Lcd.fillScreen(BLACK);  // 画面をクリア
-      M5.Lcd.setCursor(0, 0);    // カーソルを左上にリセット
+      M5.Lcd.setCursor(20, 20);    // カーソルを左上にリセット
       M5.Lcd.setTextColor(WHITE); // 文字色を白に設定
       M5.Lcd.println("Button Pressed!");
       // トピックにTrueを送信
@@ -220,7 +242,8 @@ void buttonstate(){
 }
 
 void setup() {
-    M5.begin();// Init M5Stack. 
+    M5.begin();// Init M5Stack.
+    M5.Lcd.setRotation(3);
     delay(100);
     //M5.Power.begin();       // Init power
     M5.Lcd.setTextSize(3);  
