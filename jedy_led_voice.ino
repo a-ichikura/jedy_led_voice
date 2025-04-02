@@ -5,6 +5,7 @@
 #include <std_msgs/String.h>
 #include <std_msgs/ColorRGBA.h>
 #include <std_msgs/Bool.h> 
+#include <ArduinoJson.h>  // JSON解析ライブラリ
 
 ros::NodeHandle  nh;
 #include "FastLED.h"
@@ -62,6 +63,41 @@ const tone_t joy_sound[] = {
 };
 
 //
+N
+// JSONで受信する音階データ
+String received_tone_json = "";
+
+// 声再生のコールバック関数
+void toneCallback(const std_msgs::String& msg) {
+    received_tone_json = msg.data;
+    
+    StaticJsonDocument<512> doc;
+    DeserializationError error = deserializeJson(doc, received_tone_json);
+
+    if (error) {
+        Serial.println("Failed to parse JSON");
+        return;
+    }
+
+    for (JsonObject note : doc.as<JsonArray>()) {
+        float freq = note["freq"];
+        int duration = note["duration"];
+
+        if (freq > 0) {
+            M5.Beep.tone(freq);
+            delay(duration);
+        } else {
+            M5.Beep.mute();
+            delay(duration);
+        }
+    }
+    M5.Beep.mute();
+}
+
+//声のためのSubscriber
+// ROS Subscriber
+ros::Subscriber<std_msgs::String> tone_subscriber("tone_sequence", &toneCallback);
+
 
 //LEDのためのコールバック
 void ledModeMessageCb(const std_msgs::UInt16& msg){
@@ -265,6 +301,7 @@ void setup() {
     nh.subscribe(led_duration_subscriber);
     nh.subscribe(led_rainbow_delta_hue_subscriber);
     nh.subscribe(jedy_voice_subscriber);
+    nh.subscribe(tone_subscriber);
     nh.advertise(button_publisher);
 }
 
