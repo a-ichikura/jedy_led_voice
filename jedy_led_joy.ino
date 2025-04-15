@@ -4,13 +4,17 @@
 #include <std_msgs/Float32.h>
 #include <std_msgs/String.h>
 #include <std_msgs/ColorRGBA.h>
-#include <std_msgs/Bool.h> 
+#include <std_msgs/Bool.h>
+#include <geometry_msgs/Vector3.h> 
 #include <ArduinoJson.h>  // JSON解析ライブラリ
 
 ros::NodeHandle  nh;
 #include "FastLED.h"
 String received_text = "";  // 受信した文字列
 bool new_message = false;   // 新しいメッセージが来たかどうかのフラグ
+
+// ジョイスティックボタン付きのI2Cアドレス
+#define JOY_ADDR 0x52
 
 //LEDのための設定
 #define Neopixel_PIN 26
@@ -37,9 +41,6 @@ int rainbow_delta_hue = 1;
 #define C5 523.251  /*高いド*/
 #define E5 659.255  /*高いミ*/
 #define G5 783.991  /*高いソ*/
-
-//ボタンのための設定
-#define BUTTON_PIN 33  // ボタンを接続するGPIOピン
 
 typedef struct {
     float freq;
@@ -261,20 +262,42 @@ ros::Subscriber<std_msgs::String> jedy_voice_subscriber("jedy_voice", &jedyvoice
 std_msgs::Bool button_msg;
 ros::Publisher button_publisher("button_ispressed", &button_msg);
 
-//ボタンのための関数
-void buttonstate(){
-  int buttonState = digitalRead(BUTTON_PIN); // ボタンの状態を取得
-    if (buttonState == LOW) { // 内部プルアップなので押すとLOW
+//ジョイスティックの状態を送信するためのpublisher
+geometry_msgs::Vector3 xy_msg;
+ros::Publisher xy_publisher("joystick_xy", &xy_msg);
+
+void joystick_update() {
+  uint8_t x = 0, y = 0, btn = 0;
+
+  Wire.beginTransmission(JOY_ADDR);
+  Wire.write(0x00);
+  Wire.endTransmission();
+  Wire.requestFrom(JOY_ADDR, 3);
+
+  if (Wire.available() == 3) {
+    x = Wire.read();  // 0〜255
+    y = Wire.read();
+    btn = Wire.read();  // Zボタン（1: 押してる, 0: 離れてる）
+
+    // 座標を publish（範囲は正規化したければ変更してOK）
+    xy_msg.x = static_cast<float>(x);
+    xy_msg.y = static_cast<float>(y);
+    xy_msg.z = 0;
+    xy_publisher.publish(&xy_msg);
+
+    // Zボタンが押されたら publish
+    if (btn == 1) {
+      button_msg.data = true;
+      button_publisher.publish(&button_msg);
       M5.Lcd.fillScreen(BLACK);  // 画面をクリア
       M5.Lcd.setCursor(20, 20);    // カーソルを左上にリセット
       M5.Lcd.setTextColor(WHITE); // 文字色を白に設定
       M5.Lcd.println("Button Pressed!");
-      // トピックにTrueを送信
-      button_msg.data = true;
-      button_publisher.publish(&button_msg);
     }
-    delay(100);  // チャタリング防止
+  }
 }
+
+
 
 void setup() {
     M5.begin();// Init M5Stack.
@@ -286,7 +309,7 @@ void setup() {
     M5.Lcd.println("Display rainbow effect");
     M5.Beep.setVolume(20);
     M5.Beep.begin();
-    pinMode(BUTTON_PIN, INPUT_PULLUP);  // 内部プルアップ有効
+    Wire.begin(32,33);
 
     // Neopixel initialization. 
     FastLED.addLeds<WS2811, Neopixel_PIN, GRB>(leds, NUM_LEDS)
@@ -302,11 +325,12 @@ void setup() {
     nh.subscribe(jedy_voice_subscriber);
     nh.subscribe(tone_subscriber);
     nh.advertise(button_publisher);
+    nh.advertise(xy_publisher);
 }
 
 void loop() {
     nh.spinOnce();
     M5.update();
     updateLED();  // LED の更新を関数として呼び出す
-    buttonstate(); //ボタンの更新を関数として呼び出す
+    joystick_update(); //ジョイスティックの更新を関数として呼び出す
 }
