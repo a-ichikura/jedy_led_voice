@@ -7,6 +7,11 @@
 #include <std_msgs/Bool.h>
 #include <geometry_msgs/Vector3.h> 
 #include <ArduinoJson.h>  // JSON解析ライブラリ
+#include "efont.h"
+#include "efontM5StickCPlus.h"
+#include "efontEnableJa.h"
+
+
 
 ros::NodeHandle  nh;
 #include "FastLED.h"
@@ -211,11 +216,51 @@ void playSound(const tone_t* tone, uint32_t length) {
     //M5.Beep.mute();
 }
 
+void printEfontTypewriter(const String &text, int x = 0, int y = 0, int delay_ms = 100) {
+  const char* cstr = text.c_str();
+  char buf[4] = {0};
+
+  size_t len = strlen(cstr);
+  size_t i = 0;
+
+  while (i < len) {
+    uint8_t c = (uint8_t)cstr[i];
+    int char_len = 1;
+
+    if ((c & 0xE0) == 0xC0) char_len = 2;
+    else if ((c & 0xF0) == 0xE0) char_len = 3;
+    else char_len = 1;
+
+  if (i + char_len <= len) {
+      memcpy(buf, &cstr[i], char_len);
+      buf[char_len] = '\0';
+
+      M5.Lcd.setCursor(x, y);
+      printEfont(buf);
+
+      // 表示幅の調整（全角は広く、半角は狭く）
+      if (char_len == 1) {
+        x += 20;   // 半角幅
+      } else {
+        x += 42;  // 全角幅（日本語など）
+      }
+    }
+
+    if (x > 200) {
+      x = 0;
+      y += 42;
+    }
+
+    delay(delay_ms);
+    i += char_len;    
+  }
+}
+
 void jedyvoiceMessageCb(const std_msgs::String& msg){
   //M5.Lcd.println(msg.data);  // トピックの内容を表示
   M5.Lcd.fillScreen(BLACK);  // 画面をクリア
   M5.Lcd.setCursor(0, 0);    // カーソルを左上にリセット
-  M5.Lcd.setTextColor(WHITE); // 文字色を白に設定
+  M5.Lcd.setTextColor(WHITE,BLACK); // 文字色を白に設定
   int char_width = 12;
   new_message = true;  // 新しいメッセージが来たことを通知
   received_text = msg.data;
@@ -235,21 +280,9 @@ void jedyvoiceMessageCb(const std_msgs::String& msg){
     }
     else{
       if (new_message) {
-        M5.Lcd.fillScreen(TFT_BLACK);  // 画面をクリア
-        int x = 20, y = 20;  // 文字の初期位置
-        int char_width = 15; // 文字幅（フォントサイズに応じて調整）
-        
-        for (int i = 0; i < received_text.length(); i++) {
-            M5.Lcd.setCursor(x, y);
-            M5.Lcd.print(received_text[i]); // 一文字ずつ表示
-            x += char_width;  // 次の文字の位置を調整
-            if (x > 200) {  // 画面端に来たら改行
-                x = 10;
-                y += 20;
-            }
-            delay(100);  // 100msの遅延でタイプライター風に
-        }
-        new_message = false;  // フラグをリセット
+      M5.Lcd.fillScreen(TFT_BLACK);  // 画面をクリア
+      printEfontTypewriter(received_text, 10, 20, 100);  // ← タイプライター風
+      new_message = false;
     }
 }
 }
@@ -292,7 +325,7 @@ void joystick_update() {
       M5.Lcd.fillScreen(BLACK);  // 画面をクリア
       M5.Lcd.setCursor(20, 20);    // カーソルを左上にリセット
       M5.Lcd.setTextColor(WHITE); // 文字色を白に設定
-      M5.Lcd.println("Button Pressed!");
+      //M5.Lcd.println("Button Pressed!");
     }
   }
 }
