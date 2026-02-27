@@ -76,7 +76,7 @@ String received_tone_json = "";
 void toneCallback(const std_msgs::String& msg) {
     received_tone_json = msg.data;
     
-    StaticJsonDocument<512> doc;
+    StaticJsonDocument<2048> doc;
     DeserializationError error = deserializeJson(doc, received_tone_json);
 
     if (error) {
